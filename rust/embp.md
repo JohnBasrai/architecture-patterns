@@ -1,5 +1,4 @@
 # Explicit Module Boundary Pattern (EMBP)
-
 *Documented by John Basrai, May 2025. This work is licensed under CC BY 4.0*
 
 ## 1.0 Overview
@@ -102,7 +101,7 @@ In multi-crate workspaces, one crate can serve as the primary public API gateway
 
 ```rust
 // lib/src/lib.rs - Workspace gateway crate
-pub mod domain;
+mod domain;
 mod repository;
 
 // Re-export domain types for easy access
