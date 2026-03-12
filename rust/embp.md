@@ -8,8 +8,8 @@ The **Explicit Module Boundary Pattern (EMBP)**—also referred to as the **Gate
 **Pattern Name:**   Explicit Module Boundary Pattern (EMBP)<br>
 **Also Known As:**  Gateway Module Pattern<br>
 **Acronym:**        EMBP<br>
-**Version:**        1.2<br>
-**Tested with:**    Rust edition 2021<br>
+**Version:**        1.3<br>
+**Tested with:**    Rust edition 2024<br>
 
 ---
 
@@ -90,6 +90,22 @@ async fn main() -> Result<(), anyhow::Error> {
     server::run().await  // Delegate to implementation
 }
 ```
+Insert it as a new subsection **2.6** after the existing 2.5 block, with this content:
+
+---
+
+**2.6 Gateway File Naming**
+
+The `mod.rs` and sibling-file forms are semantically equivalent to the Rust compiler:
+
+```
+src/config/mod.rs   // directory-based gateway (older convention)
+src/config.rs       // file-based gateway (Rust 2018+ idiomatic)
+```
+
+EMBP uses the sibling-file form (`config.rs`) as the preferred gateway naming convention. It is idiomatic in Rust 2018+ and avoids the ambiguous tab titles that arise when multiple `mod.rs` files are open in an editor simultaneously.
+
+Note: a `src/config.rs` alongside a `src/config/` directory is *not* a violation of EMBP — `config.rs` *is* the module gateway for that directory.
 
 ---
 
