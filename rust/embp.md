@@ -1,5 +1,5 @@
 # Explicit Module Boundary Pattern (EMBP)
-*Documented by John Basrai, May 2025. This work is licensed under CC BY 4.0*
+*Documented by John Basrai, May 2025. Updated July 2026. This work is licensed under CC BY 4.0*
 
 ## 1.0 Overview
 
@@ -8,7 +8,7 @@ The **Explicit Module Boundary Pattern (EMBP)**—also referred to as the **Gate
 **Pattern Name:**   Explicit Module Boundary Pattern (EMBP)<br>
 **Also Known As:**  Gateway Module Pattern<br>
 **Acronym:**        EMBP<br>
-**Version:**        1.3<br>
+**Version:**        1.5<br>
 **Tested with:**    Rust edition 2024<br>
 
 ---
@@ -48,8 +48,8 @@ pub use submodule_b::{AnotherPublicType};
 | Context                  | Pattern                      | Example                       |
 | ------------------------ | ---------------------------- | ----------------------------- |
 | **Binary Entry Point**   | `super::Symbol`              | `use super::{run, init};`     |
-| **Sibling to Sibling**   | `super::Symbol`              | `use super::Credentials;`     |
-| **External Module**      | `crate::module::Symbol`      | `use crate::domain::AppUser;` |
+| **Sibling to Sibling**   | `crate::Symbol`              | `use crate::Credentials;`     |
+| **External Module**      | `crate::Symbol`              | `use crate::AppUser;`         |
 | **Binary to Library**    | `crate_name::module::Symbol` | `use myapp::domain::AppUser;` |
 | **Library to Workspace** | `use lib::{Symbol}`          | `use lib::{AppId, JobApplication}` |
 
@@ -90,11 +90,10 @@ async fn main() -> Result<(), anyhow::Error> {
     server::run().await  // Delegate to implementation
 }
 ```
-Insert it as a new subsection **2.6** after the existing 2.5 block, with this content:
 
 ---
 
-**2.6 Gateway File Naming**
+### 2.6 Gateway File Naming
 
 The `mod.rs` and sibling-file forms are semantically equivalent to the Rust compiler:
 
@@ -106,6 +105,84 @@ src/config.rs       // file-based gateway (Rust 2018+ idiomatic)
 EMBP uses the sibling-file form (`config.rs`) as the preferred gateway naming convention. It is idiomatic in Rust 2018+ and avoids the ambiguous tab titles that arise when multiple `mod.rs` files are open in an editor simultaneously.
 
 Note: a `src/config.rs` alongside a `src/config/` directory is *not* a violation of EMBP — `config.rs` *is* the module gateway for that directory.
+
+### 2.7 Bare `mod` Declarations
+
+The `mod x;` declaration must always be bare — never `pub mod x` or `pub(crate) mod x`.
+
+Both expose the module *path*, letting callers write `crate::x::Symbol` or `myapp::x::Symbol` and bypass the gateway entirely. Only a bare `mod x;` keeps the module private to the declaring file.
+
+Visibility belongs on the re-export line, not the `mod` line:
+
+```rust
+// ❌ Wrong — exposes the module path; allows bypassing the gateway
+pub mod alert;
+pub(crate) mod common;
+
+// ✅ Correct — module stays private; the use line controls what's visible
+mod alert;
+mod common;
+
+pub use alert::AlertElem;         // external public API
+pub(crate) use common::DataType;  // crate-internal only
+```
+
+### 2.8 Three-Source Rule
+
+At any depth in the module tree, a file has exactly three permitted sources for symbols:
+
+1. **Own definitions** — types, functions, and constants defined in the same file
+2. **One level down** — immediate child modules declared with `mod child;`, used directly as `child::Type`
+3. **Crate root** — `crate::Symbol` (flat, no intermediate path segments)
+
+Everything else is forbidden:
+
+- **No `super::Symbol`** — use `crate::Symbol` instead; the crate root re-export is always reachable and is the correct path
+- **No `crate::module::Symbol`** — do not drill past the crate root into a sub-module path
+- **No `crate::sibling::Something`** — sibling access must go through the crate root re-export, never directly into a sibling's module path
+
+Import direction is always **upward toward root**. A module never reaches sideways into a sibling or downward into a sibling's children.
+
+```rust
+// ❌ Wrong — drilling into a sibling's sub-module
+use crate::model::cluster::BatteryCluster;
+
+// ❌ Wrong — super:: instead of going through the crate root
+use super::Credentials;
+
+// ✅ Correct — crate root re-export (flat)
+use crate::BatteryCluster;
+use crate::Credentials;
+
+// ✅ Correct — own immediate child module (one level down)
+mod cluster;
+use cluster::BatteryCluster;
+```
+
+**Why not `super::`?** In a deeply nested module, `super::` reaches the *immediate* parent, not necessarily the crate root. If the parent gateway has not re-exported a symbol, the call fails. And if the parent has re-exported it, `crate::Symbol` already works — so `super::` is never the right choice.
+
+### 2.9 `pub use` vs `pub(crate) use` and Visibility Cascade
+
+Gateway files use two re-export visibility levels:
+
+- `pub use x::Symbol` — **external public API**; visible to consumers outside the crate
+- `pub(crate) use x::Symbol` — **crate-internal only**; supports the crate's own implementation; not visible to external consumers
+
+The choice drives a **cascade rule**: visibility must be consistent down the chain. If a gateway re-exports a symbol as `pub(crate) use`, the symbol's definition in its source module must also be `pub(crate)`, not `pub`. A `pub` definition re-exported as `pub(crate) use` is inconsistent — it implies the symbol *could* be public but is being arbitrarily restricted.
+
+```rust
+// lib.rs — gateway sets the visibility
+mod alert;
+
+pub use alert::AlertElem;           // external API
+pub(crate) use alert::AlertState;   // crate-internal
+
+// alert.rs — definition visibility must match
+pub struct AlertElem { ... }        // ✅ matches pub use above
+pub(crate) enum AlertState { ... }  // ✅ matches pub(crate) use above
+```
+
+**Corollary:** If every re-export in a `lib.rs` is `pub(crate) use`, the crate exposes no external public API. A workspace gateway crate that depends on it must provide its own explicit `pub use` re-exports to restore external access. This is intentional when a crate is purely an implementation detail with another crate acting as its public face.
 
 ---
 
@@ -364,6 +441,38 @@ pub fn get_user() -> InternalUserType { }
 pub fn get_user() -> User { }
 ```
 
+❌ **`pub mod` or `pub(crate) mod` Declarations**
+
+```rust
+// DON'T: exposes the module path — callers can bypass the gateway
+pub mod alert;
+pub(crate) mod common;
+```
+
+✅ **Bare `mod` Declaration**
+
+```rust
+// DO: module stays private; gateway controls what's visible via use lines
+mod alert;
+mod common;
+```
+
+❌ **`super::` for Cross-Module Access**
+
+```rust
+// DON'T: super:: may not reach the right level and hides intent
+use super::Credentials;
+use super::model::Config;  // especially wrong — drilling through super
+```
+
+✅ **`crate::Symbol` for Cross-Module Access**
+
+```rust
+// DO: always go through the crate root re-export (flat)
+use crate::Credentials;
+use crate::Config;
+```
+
 ❌ **Workspace Gateway Bypassing**
 
 ```rust
@@ -389,7 +498,103 @@ use lib::{JobApplication, JobApplicationPtr, create_memory_repository};
 
 ---
 
-## 9.0 Implementation Checklist
+## 8.1 Relationship to Other Rust Design Frameworks
+
+EMBP is a **module organization pattern** that works in concert with broader API design principles. Here's how it relates to other frameworks:
+
+| Dimension | EMBP | Gjengset's Four Pillars | Official Guidelines | Rust Book |
+|-----------|------|-------------------------|-------------------|-----------|
+| **Focus** | Module boundaries & gating; import discipline | API design quality (unsurprising, flexible, obvious, constrained) | Standards for public APIs (documentation, naming, type safety) | Foundational language concepts & patterns |
+| **Scope** | How modules expose/hide internals | How types and functions feel to users | Documentation, naming conventions, error handling | Ownership, borrowing, modules (basic) |
+| **Private Fields** | Enables via private module declarations + gateways | Supports via encapsulation (less surprising, more constrained) | Encourages via accessibility levels | Explains how `pub struct` fields are accessible |
+| **Cross-Module Access** | Three-source rule; `crate::` from root | N/A (API-level concern, not module-level) | Prefer shallow, explicit imports | N/A (not about module design) |
+| **Type Safety** | Prevents bypassing via module gating | Constrains through type system (newtype pattern) | Uses type safety to guide users | Foundation for all type safety |
+| **Validation** | Work-ledger refactoring (HIGH priority: private fields + accessors ~30 changes) | Work-ledger audit findings (MEDIUM: newtype wrappers ~81 changes; LOW: field naming) | Checked in code review; linting (clippy) | Foundational; verified by compiler |
+
+### Complementary Approaches
+
+**EMBP + Gjengset's Framework:**
+- EMBP controls what's publicly *accessible* (module gating)
+- Gjengset's pillars control how public APIs *feel* (encapsulation, type clarity)
+- **Together:** Private fields with accessor methods satisfy both—module boundaries (EMBP) + obvious/constrained design (Gjengset)
+- **Example:** `ChargeCode` struct: private fields (EMBP) + `pjn()`, `subtask()`, `description()` accessors (Gjengset's "obvious, constrained")
+
+**EMBP + Official Guidelines:**
+- EMBP structures the module hierarchy
+- Official Guidelines address documentation, error handling, naming within that hierarchy
+- **Together:** Create a complete, professional API
+- **Example:** Clear `mod.rs` gateways (EMBP) + doc comments on public items (Guidelines)
+
+**EMBP + Rust Book:**
+- Rust Book teaches language fundamentals (ownership, borrowing, modules)
+- EMBP applies those fundamentals to large-scale architecture
+- **Example:** The Book explains `pub struct` fields; EMBP applies that to multi-module design
+
+### Validation in work-ledger (2026-07-04)
+
+Three audit passes informed the refactoring:
+
+1. **EMBP audit** — Applied to all five gateway modules (`main.rs`, `db/mod.rs`, `commands/mod.rs`, `output/mod.rs`, `tui/mod.rs`)
+   - Result: Private module declarations + selective `pub use` re-exports ✓
+   - Import discipline: `crate::Symbol` for cross-module access ✓
+
+2. **Gjengset's Four Pillars audit** — Evaluated all public types
+   - **Unsurprising:** ChargeCode/ReportRow field mutations prevented → private fields
+   - **Flexible:** Accessor methods allow future implementation changes
+   - **Obvious:** Public methods describe intent (e.g., `percent_of_week()` vs. `pct`)
+   - **Constrained:** Private fields prevent accidental direct access
+   - Result: HIGH priority (private fields + accessors) completed; MEDIUM (newtype wrappers) deferred; LOW (polish) deferred
+
+3. **Official Rust API Guidelines audit** — Naming, documentation, stability
+   - Result: Naming improvements (e.g., `pct` → `percent_of_week`) included in HIGH priority
+
+---
+
+## 9.0 Future Directions: Pure Rust Databases
+
+### 9.1 Current State
+
+work-ledger uses SQLite (C dependency) via `rusqlite`. Trade-offs:
+
+**Pros:**
+- Battle-tested, industry standard
+- Excellent Rust bindings
+- Full SQL feature set
+
+**Cons:**
+- External C dependency (not pure Rust)
+- Binary size increase
+- No type-safe query building (raw SQL strings)
+
+### 9.2 Exploration Ideas
+
+**Pure Rust alternatives worth investigating:**
+
+1. **RustSqlite / sqlite-rust**
+   - Directly read/write SQLite file format (no C FFI)
+   - Maintains compatibility with standard SQLite tools
+   - Trade-off: Smaller surface area than full `libsqlite3`
+
+2. **Embedded Databases (pure Rust, schema-specific)**
+   - `sled` — Embedded key-value store with ACID transactions
+   - `redb` — Minimalist relational database
+   - Trade-off: Limited query language; more domain-modeling required
+
+3. **Type-Safe Query Builders**
+   - `sea-orm` — ORM with compile-time query verification
+   - `tokio-postgres` (if moving to client-server) — Type-safe queries
+   - Trade-off: Learning curve; may be overkill for time-ledger's simple schema
+
+4. **Hybrid Approach**
+   - Pure Rust database for runtime
+   - SQLite for data interchange/export (write compatible format)
+   - Trade-off: Dual implementation burden
+
+**Decision point:** Measure current binary size, compile time, and SQLite surface area usage. Investigate if switching would reduce attack surface (no C dependency) without sacrificing query flexibility.
+
+---
+
+## 10.0 Implementation Checklist
 
 ### 9.1 Module Structure
 
@@ -398,8 +603,8 @@ use lib::{JobApplication, JobApplicationPtr, create_memory_repository};
 
 ### 9.2 Import Discipline
 
-- [ ] Sibling modules import from each other using `super::`
-- [ ] External modules import through `crate::module::`
+- [ ] Sibling modules import from each other using `crate::Symbol` (never `super::` or `crate::module::Symbol`)
+- [ ] No `crate::module::Symbol` paths — all cross-module access goes through the crate root re-export
 - [ ] No direct imports that bypass `mod.rs` gateways
 - [ ] Workspace members use gateway crate exports, not deep imports
 
@@ -425,7 +630,7 @@ use lib::{JobApplication, JobApplicationPtr, create_memory_repository};
 
 ---
 
-## 10.0 When to Use EMBP
+## 11.0 When to Use EMBP
 
 ✅ **Good for:**
 - Multi-module applications
@@ -444,7 +649,7 @@ use lib::{JobApplication, JobApplicationPtr, create_memory_repository};
 
 ---
 
-## 11.0 Real-World Example: Job Tracker
+## 12.0 Real-World Example: Job Tracker
 
 A complete workspace implementation showing EMBP patterns:
 
