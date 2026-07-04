@@ -550,51 +550,7 @@ Three audit passes informed the refactoring:
 
 ---
 
-## 9.0 Future Directions: Pure Rust Databases
-
-### 9.1 Current State
-
-work-ledger uses SQLite (C dependency) via `rusqlite`. Trade-offs:
-
-**Pros:**
-- Battle-tested, industry standard
-- Excellent Rust bindings
-- Full SQL feature set
-
-**Cons:**
-- External C dependency (not pure Rust)
-- Binary size increase
-- No type-safe query building (raw SQL strings)
-
-### 9.2 Exploration Ideas
-
-**Pure Rust alternatives worth investigating:**
-
-1. **RustSqlite / sqlite-rust**
-   - Directly read/write SQLite file format (no C FFI)
-   - Maintains compatibility with standard SQLite tools
-   - Trade-off: Smaller surface area than full `libsqlite3`
-
-2. **Embedded Databases (pure Rust, schema-specific)**
-   - `sled` — Embedded key-value store with ACID transactions
-   - `redb` — Minimalist relational database
-   - Trade-off: Limited query language; more domain-modeling required
-
-3. **Type-Safe Query Builders**
-   - `sea-orm` — ORM with compile-time query verification
-   - `tokio-postgres` (if moving to client-server) — Type-safe queries
-   - Trade-off: Learning curve; may be overkill for time-ledger's simple schema
-
-4. **Hybrid Approach**
-   - Pure Rust database for runtime
-   - SQLite for data interchange/export (write compatible format)
-   - Trade-off: Dual implementation burden
-
-**Decision point:** Measure current binary size, compile time, and SQLite surface area usage. Investigate if switching would reduce attack surface (no C dependency) without sacrificing query flexibility.
-
----
-
-## 10.0 Implementation Checklist
+## 9.0 Implementation Checklist
 
 ### 9.1 Module Structure
 
@@ -630,7 +586,7 @@ work-ledger uses SQLite (C dependency) via `rusqlite`. Trade-offs:
 
 ---
 
-## 11.0 When to Use EMBP
+## 10.0 When to Use EMBP
 
 ✅ **Good for:**
 - Multi-module applications
@@ -649,7 +605,7 @@ work-ledger uses SQLite (C dependency) via `rusqlite`. Trade-offs:
 
 ---
 
-## 12.0 Real-World Example: Job Tracker
+## 11.0 Real-World Example: Job Tracker
 
 A complete workspace implementation showing EMBP patterns:
 
